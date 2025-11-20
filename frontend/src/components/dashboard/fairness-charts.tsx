@@ -20,11 +20,25 @@ const chartConfig = {
   },
 } satisfies ChartConfig;
 
-export function FairnessCharts() {
+interface FairnessChartsProps {
+  summary?: any;
+}
+
+export function FairnessCharts({ summary }: FairnessChartsProps) {
+  // Transform API data to chart format or use mock data
+  const chartData = summary?.biasMetrics ? 
+    Object.keys(summary.biasMetrics.demographicParity || {}).map(attr => ({
+      group: attr,
+      "Statistical Parity": summary.biasMetrics.demographicParity[attr] || 0,
+      "Equal Opportunity": summary.biasMetrics.equalOpportunity[attr] || 0,
+      "Disparate Impact": summary.biasMetrics.disparateImpact?.[attr] || 0,
+    }))
+    : fairnessMetricsData;
+
   return (
     <ChartContainer config={chartConfig} className="h-72 w-full">
         <ResponsiveContainer>
-          <BarChart data={fairnessMetricsData} margin={{ top: 20, right: 20, bottom: 5, left: 0 }}>
+          <BarChart data={chartData} margin={{ top: 20, right: 20, bottom: 5, left: 0 }}>
             <CartesianGrid vertical={false} />
             <XAxis
               dataKey="group"

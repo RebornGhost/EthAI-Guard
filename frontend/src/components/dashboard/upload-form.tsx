@@ -39,8 +39,8 @@ export function UploadForm() {
     }
   };
 
-  const handleFile = (selectedFile: File) => {
-    if (selectedFile.type !== "text/csv") {
+  const handleFile = async (selectedFile: File) => {
+    if (selectedFile.type !== "text/csv" && !selectedFile.name.endsWith('.csv')) {
         toast({
             title: "Invalid File Type",
             description: "Please upload a CSV file.",
@@ -48,11 +48,55 @@ export function UploadForm() {
         });
         return;
     }
+    
     setFile({ name: selectedFile.name, size: selectedFile.size });
-    setPreviewData(null); // Clear previous preview
-    // Simulate reading CSV header for preview
-    setPreviewData(exampleDataset.slice(0, 10));
-    simulateUpload();
+    setPreviewData(null);
+    setIsUploading(true);
+    setUploadProgress(0);
+    
+    try {
+      // Read file and parse CSV for preview
+      const text = await selectedFile.text();
+      const lines = text.split('\n').filter(line => line.trim());
+      const headers = lines[0].split(',').map(h => h.trim());
+      
+      // Parse first 10 rows for preview
+      const previewRows = lines.slice(1, 11).map(line => {
+        const values = line.split(',').map(v => v.trim());
+        const row: any = {};
+        headers.forEach((header, idx) => {
+          row[header] = values[idx] || '';
+        });
+        return row;
+      });
+      
+      setPreviewData(previewRows);
+      
+      // Simulate upload progress
+      const interval = setInterval(() => {
+        setUploadProgress(prev => {
+          if (prev >= 100) {
+            clearInterval(interval);
+            setIsUploading(false);
+            toast({
+              title: "File Ready",
+              description: `${selectedFile.name} is ready for analysis.`,
+            });
+            return 100;
+          }
+          return prev + 20;
+        });
+      }, 200);
+      
+    } catch (error: any) {
+      console.error('Error reading file:', error);
+      setIsUploading(false);
+      toast({
+        title: "File Error",
+        description: "Unable to read CSV file. Please check the format.",
+        variant: "destructive",
+      });
+    }
   };
 
   const simulateUpload = () => {
@@ -81,52 +125,122 @@ export function UploadForm() {
     setPreviewData(null);
   };
 
-  const handleRunAnalysis = () => {
-    // Use an async handler to keep types clear and payload shaped as columns->arrays
-    (async () => {
-      setIsAnalyzing(true);
-      toast({
-        title: "Analysis Started",
-        description: "Your dataset is being analyzed for fairness.",
+  const handleRunAnalysis = async () => {
+    setIsAnalyzing(true);
+    toast({
+      title: "Analysis Started",
+      description: "Your dataset is being analyzed for fairness and bias...",
+    });
+
+    // Convert preview rows [{colA: v, colB: v}, ...] into {colA: [..], colB: [..]}
+    const rowsToColumns = (rows: any[]) => {
+      if (!rows || rows.length === 0) return {};
+      const cols: Record<string, any[]> = {};
+      Object.keys(rows[0]).forEach((k) => (cols[k] = []));
+      rows.forEach((r) => {
+        Object.entries(r).forEach(([k, v]) => cols[k].push(v));
       });
+      return cols;
+    };
 
-      // Convert preview rows [{colA: v, colB: v}, ...] into {colA: [..], colB: [..]}
-      const rowsToColumns = (rows: any[]) => {
-        if (!rows || rows.length === 0) return {};
-        const cols: Record<string, any[]> = {};
-        Object.keys(rows[0]).forEach((k) => (cols[k] = []));
-        rows.forEach((r) => {
-          Object.entries(r).forEach(([k, v]) => cols[k].push(v));
-        });
-        return cols;
+    try {
+      const data = previewData ? rowsToColumns(previewData) : {};
+      const payload = { 
+        dataset_name: file?.name || 'example',
+        data 
       };
-
-      try {
-        const data = previewData ? rowsToColumns(previewData) : {};
-        const payload = { dataset_name: file?.name || 'example', data };
-        const res = await api.post('/analyze', payload);
-        const reportId = res?.data?.reportId || res?.data?.analysisId || res?.data?.analysis_id;
-        toast({ title: 'Analysis Complete', description: 'Results are available.' });
-        if (reportId) router.push(`/report/${reportId}`);
-        else router.push('/dashboard/fairlens');
-      } catch (err: any) {
-        console.error('Analyze error', err);
-        toast({ title: 'Analysis Failed', description: String(err?.response?.data?.error || err?.message), variant: 'destructive' });
-      } finally {
-        setIsAnalyzing(false);
+      
+      // Call backend analyze endpoint
+      const res = await api.post('/api/analyze', payload);
+      
+      // Extract analysis/report ID from various possible response structures
+      const reportId = res?.data?.reportId || 
+                      res?.data?.analysisId || 
+                      res?.data?.analysis_id ||
+                      res?.data?.report?.id;
+      
+      toast({ 
+        title: 'Analysis Complete! ✨', 
+        description: 'Fairness metrics and explanations are ready.',
+      });
+      
+      // Navigate to results
+      if (reportId) {
+        router.push(`/report/${reportId}`);
+      } else {
+        // Fallback if no ID returned
+        router.push('/dashboard/fairlens');
       }
-    })();
+    } catch (err: any) {
+      console.error('Analysis error:', err);
+      const errorMsg = err?.response?.data?.error || 
+                      err?.response?.data?.message || 
+                      err?.message || 
+                      'Unknown error occurred';
+      toast({ 
+        title: 'Analysis Failed', 
+        description: errorMsg,
+        variant: 'destructive',
+        duration: 5000,
+      });
+    } finally {
+      setIsAnalyzing(false);
+    }
   };
 
-  const loadExample = () => {
-    setFile({name: 'example_loan_data.csv', size: 12345});
-    setPreviewData(exampleDataset.slice(0, 10));
-    setIsUploading(false);
-    setUploadProgress(100);
-     toast({
+  const loadExample = async () => {
+    try {
+      // Fetch the demo CSV file we created during seeding
+      const response = await fetch('/demo-loan-data.csv');
+      if (!response.ok) {
+        // Fallback to mock data if demo file not available
+        setFile({name: 'example_loan_data.csv', size: 12345});
+        setPreviewData(exampleDataset.slice(0, 10));
+        setIsUploading(false);
+        setUploadProgress(100);
+        toast({
+          title: "Example Dataset Loaded",
+          description: "Using sample dataset. You can now proceed with the analysis.",
+        });
+        return;
+      }
+      
+      const csvText = await response.text();
+      const lines = csvText.split('\n').filter(line => line.trim());
+      
+      if (lines.length > 0) {
+        const headers = lines[0].split(',').map(h => h.trim());
+        const previewRows = lines.slice(1, 11).map(line => {
+          const values = line.split(',');
+          const row: any = {};
+          headers.forEach((header, i) => {
+            row[header] = values[i]?.trim() || '';
+          });
+          return row;
+        });
+        
+        setFile({name: 'demo-loan-data.csv', size: csvText.length});
+        setPreviewData(previewRows);
+        setTargetColumn('loan_approved');
+        setIsUploading(false);
+        setUploadProgress(100);
+        toast({
+          title: "Demo Dataset Loaded",
+          description: `Loaded ${lines.length - 1} loan applications. You can now proceed with the analysis.`,
+        });
+      }
+    } catch (error) {
+      console.error('Failed to load demo dataset:', error);
+      // Fallback to mock data
+      setFile({name: 'example_loan_data.csv', size: 12345});
+      setPreviewData(exampleDataset.slice(0, 10));
+      setIsUploading(false);
+      setUploadProgress(100);
+      toast({
         title: "Example Dataset Loaded",
-        description: "You can now proceed with the analysis.",
-    });
+        description: "Using fallback dataset. You can now proceed with the analysis.",
+      });
+    }
   };
 
   return (
