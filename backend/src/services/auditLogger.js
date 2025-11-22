@@ -177,7 +177,7 @@ class AuditLogger {
         summary
       };
     } catch (error) {
-      console.error(`❌ Failed to get audit trail for ${model_id}:`, error);
+      console.error('❌ Failed to get audit trail for %s:', model_id, error);
       throw error;
     }
   }
