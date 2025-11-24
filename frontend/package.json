@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "next dev",
+  "smoke:status": "node ../tools/tests/smoke-status.js",
     "build": "next build",
     "start": "next start",
     "test": "vitest run --reporter verbose",
