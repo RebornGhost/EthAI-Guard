@@ -239,7 +239,7 @@ export default function DocsPage() {
               </Link>
             </Button>
             <Button size="lg" variant="outline" asChild className="bg-white/10 text-white border-white/20 hover:bg-white/20">
-              <Link href="/dashboard">
+              <Link href="/demo">
                 Try Demo
               </Link>
             </Button>

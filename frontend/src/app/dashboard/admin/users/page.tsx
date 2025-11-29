@@ -14,6 +14,8 @@ export default function UsersAdminPage() {
   const [email, setEmail] = useState('');
   const [users, setUsers] = useState<any[] | null>(null);
   const [page, setPage] = useState(1);
+  const [totalCount, setTotalCount] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
   const [selectedHistory, setSelectedHistory] = useState<any[] | null>(null);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -73,7 +75,14 @@ export default function UsersAdminPage() {
     setLoading(true);
     try {
       const res = await api.get(`/v1/users?page=${p}&limit=50`);
-      setUsers(res?.data?.items || []);
+      const items = res?.data?.items || [];
+      const count = typeof res?.data?.count === 'number' ? res.data.count : items.length;
+      const limit = typeof res?.data?.limit === 'number' ? res.data.limit : 50;
+      const totalP = Math.max(1, Math.ceil(count / limit));
+      setUsers(items);
+      setTotalCount(count);
+      setTotalPages(totalP);
+      setPage(Number(res?.data?.page || p));
     } catch (e) {
       toast({ title: 'Failed to load users', variant: 'destructive' });
     } finally {
@@ -136,6 +145,15 @@ export default function UsersAdminPage() {
               </CardContent>
             </Card>
           ))}
+        </div>
+        {/* Pagination controls */}
+        <div className="mt-4 flex items-center justify-between">
+          <div className="text-sm text-muted-foreground">Showing {users ? users.length : 0} of {totalCount} users</div>
+          <div className="flex items-center gap-2">
+            <Button size="sm" variant="outline" onClick={() => loadUsers(Math.max(1, page - 1))} disabled={loading || page <= 1}>Previous</Button>
+            <div className="text-sm">Page {page} / {totalPages}</div>
+            <Button size="sm" variant="outline" onClick={() => loadUsers(Math.min(totalPages, page + 1))} disabled={loading || page >= totalPages}>Next</Button>
+          </div>
         </div>
       </div>
 

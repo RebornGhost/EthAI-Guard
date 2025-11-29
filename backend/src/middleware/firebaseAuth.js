@@ -14,6 +14,11 @@ async function firebaseAuth(req, res, next) {
     if (!token) return res.status(401).json({ error: 'No token' });
 
     const decoded = await firebaseAdmin.verifyIdToken(token);
+    // Enforce that the Firebase user's email is verified. If not, reject with 403.
+    // decoded.email_verified is provided by firebase-admin verifyIdToken
+    if (decoded && decoded.email_verified === false) {
+      return res.status(403).json({ error: 'email_not_verified' });
+    }
     // Attach common fields for downstream code
     req.user = { sub: decoded.uid, email: decoded.email, role: 'user' };
     req.userId = decoded.uid;

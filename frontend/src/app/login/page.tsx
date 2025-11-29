@@ -16,6 +16,7 @@ import React from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { defaultRouteForRoles } from '@/lib/rbac';
 import { auth } from '@/lib/firebase';
+import { sendEmailVerification } from 'firebase/auth';
 import api from '@/lib/api';
 
 const formSchema = z.object({
@@ -28,6 +29,8 @@ export default function LoginPage() {
   const { toast } = useToast();
   const { login, refreshRoles, hasRole } = useAuth();
   const [isSubmitting, setIsSubmitting] = React.useState(false);
+  const [canResendInline, setCanResendInline] = React.useState(false);
+  const [resendSending, setResendSending] = React.useState(false);
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
@@ -41,26 +44,35 @@ export default function LoginPage() {
     setIsSubmitting(true);
     
     try {
-      await login(values.email, values.password);
-      
+      // Perform login (this may return a Firebase credential when using Firebase)
+      const cred = await login(values.email, values.password);
+
+      // If using Firebase, enforce email verification before allowing access to protected pages.
+      try {
+        const current = auth.currentUser || (cred && (cred as any).user);
+        if (current && !current.emailVerified) {
+          // Best-effort: send a verification email and redirect user to a friendly
+          // verification page with a resend button and instructions.
+          try { await sendEmailVerification(current); } catch (_) {}
+          router.push('/verify-email');
+          setIsSubmitting(false);
+          return;
+        }
+      } catch (e) {
+        // ignore verification-check errors and proceed (server-side may still gate access)
+      }
+
       toast({
         title: "Welcome back!",
         description: "You've been successfully logged in. Redirecting...",
         duration: 2000,
       });
-      
-      // Refresh roles from the backend and redirect based on role.
-      // Prefer authoritative backend role from /v1/users/me; if unavailable,
-      // fall back to token claims. This avoids routing races where token claims
-      // are stale after a role change.
-      try {
-        await refreshRoles();
-      } catch (e) {
-        // ignore refresh failures
-      }
 
+      // Refresh roles from backend (best-effort) to get authoritative role mapping
+      try { await refreshRoles(); } catch (_) {}
+
+      // 1) Try backend authoritative role
       try {
-        // Try to read authoritative role from backend API directly.
         const me = await api.get('/v1/users/me');
         const roleFromBackend = me?.data?.role;
         let backendRoles: string[] | undefined;
@@ -68,16 +80,14 @@ export default function LoginPage() {
         else if (typeof roleFromBackend === 'string') backendRoles = roleFromBackend.split(',').map((s: string) => s.trim()).filter(Boolean);
 
         if (backendRoles && backendRoles.length > 0) {
-          console.debug('Login routing: using backend roles', backendRoles);
           router.push(defaultRouteForRoles(backendRoles));
           return;
         }
-      } catch (e) {
-        // ignore backend lookup failures and fall back to token claims below
-        console.debug('Login routing: /v1/users/me lookup failed, falling back to token claims', e);
+      } catch (_) {
+        // ignore and fall back to token claims
       }
 
-      // Fallback: prefer token claims (if available) and then AuthContext.hasRole
+      // 2) Try token claims from Firebase (if available)
       try {
         const current = auth.currentUser;
         if (current) {
@@ -86,21 +96,17 @@ export default function LoginPage() {
           let effectiveRoles: string[] | undefined;
           if (Array.isArray(claims.roles)) effectiveRoles = claims.roles as string[];
           else if (typeof claims.role === 'string') effectiveRoles = (claims.role as string).split(',').map(s => s.trim()).filter(Boolean);
-          console.debug('Login routing: using token claims', effectiveRoles);
           const dest = defaultRouteForRoles(effectiveRoles ?? undefined);
           router.push(dest);
           return;
         }
-      } catch (e) {
-        // ignore and fallback
+      } catch (_) {
+        // ignore and fall through
       }
 
-      // Last-resort fallback: use hasRole from AuthContext (may be populated by refreshRoles)
-      if (hasRole && hasRole('admin')) {
-        router.push('/dashboard/admin/access-requests');
-      } else {
-        router.push('/dashboard');
-      }
+      // 3) Last-resort: use hasRole from AuthContext
+      if (hasRole && hasRole('admin')) router.push('/dashboard/admin/access-requests');
+      else router.push('/dashboard');
     } catch (error: any) {
       console.error("Login error:", error);
       
@@ -137,6 +143,40 @@ export default function LoginPage() {
       });
     } finally {
       setIsSubmitting(false);
+    }
+  }
+
+  // Inline resend support: show a small CTA when there's a signed-in but unverified user
+  React.useEffect(() => {
+    try {
+      const current = auth.currentUser;
+      setCanResendInline(!!(current && !current.emailVerified));
+      // Listen for auth state changes to update UI
+      const unsub = auth.onAuthStateChanged((u) => {
+        setCanResendInline(!!(u && !u.emailVerified));
+      });
+      return () => unsub();
+    } catch (e) {
+      // ignore
+    }
+  }, []);
+
+  async function handleInlineResend() {
+    setResendSending(true);
+    try {
+      const current = auth.currentUser;
+      if (!current) {
+        toast({ title: 'Not signed in', description: 'Please sign in first to resend verification email.', variant: 'destructive' });
+        setResendSending(false);
+        return;
+      }
+      await sendEmailVerification(current);
+      toast({ title: 'Verification Sent', description: 'A verification email was sent. Check your inbox and click the link to verify.', duration: 8000 });
+    } catch (e) {
+      console.error('resend failed', e);
+      toast({ title: 'Failed to send', description: 'Could not send verification email. Try again later.', variant: 'destructive' });
+    } finally {
+      setResendSending(false);
     }
   }
 
@@ -180,6 +220,18 @@ export default function LoginPage() {
           </Button>
         </form>
       </Form>
+      {/* Inline resend CTA for users who are signed-in but email unverified */}
+      <div className="mt-3 text-center">
+        {canResendInline ? (
+          <div className="space-y-2">
+            <p className="text-sm">Your email is not verified yet.</p>
+            <div className="flex items-center justify-center gap-2">
+              <Button size="sm" onClick={handleInlineResend} disabled={resendSending}>{resendSending ? 'Sending...' : 'Resend verification email'}</Button>
+              <Link href="/verify-email" className="underline text-sm">Verification instructions</Link>
+            </div>
+          </div>
+        ) : null}
+      </div>
       <div className="mt-4 text-center text-sm">
         Don&apos;t have an account?{" "}
         <Link href="/register" className="underline text-primary">

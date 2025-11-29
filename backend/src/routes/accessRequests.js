@@ -78,17 +78,28 @@ router.post(
  */
 router.get('/v1/access-requests', authGuard, requireRole('admin'), async (req, res) => {
   try {
-    const { status, limit = 100, page = 1 } = req.query;
+    // Support pagination for large orgs. Query params: page, limit
+    const { status, limit = 50, page = 1 } = req.query;
     const q = {};
     if (status) q.status = status;
-    const skip = (Number(page) - 1) * Number(limit);
-    let items;
+    const pageNum = Math.max(1, Number(page) || 1);
+    const perPage = Math.max(1, Math.min(500, Number(limit) || 50));
+    const skip = (pageNum - 1) * perPage;
+
+    let items = [];
+    let totalCount = 0;
     if (USE_IN_MEMORY) {
-      items = await listAccessRequestsInMemory(q, skip, Number(limit));
+      // listAccessRequestsInMemory already returns sorted slice; compute total from store
+      const all = await listAccessRequestsInMemory(q, 0, Number.MAX_SAFE_INTEGER);
+      totalCount = all.length;
+      items = all.slice(skip, skip + perPage);
     } else {
-      items = await AccessRequest.find(q).sort({ createdAt: -1 }).skip(skip).limit(Number(limit));
+      totalCount = await AccessRequest.countDocuments(q);
+      items = await AccessRequest.find(q).sort({ createdAt: -1 }).skip(skip).limit(perPage);
     }
-    return res.json({ items, count: items.length });
+
+    const totalPages = Math.ceil(totalCount / perPage);
+    return res.json({ items, count: totalCount, page: pageNum, limit: perPage, totalPages });
   } catch (e) {
     logger.error({ err: e }, 'access_requests_list_failed');
     return res.status(500).json({ error: 'list_failed' });

@@ -6,6 +6,7 @@
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",
     "test": "jest --detectOpenHandles --forceExit",
+    "test:emulator": "./backend/scripts/run_emulator_and_tests.sh",
     "lint": "eslint src/ --ext .js",
     "lint:fix": "eslint src/ --ext .js --fix",
     "test:coverage": "jest --coverage --watchAll=false",

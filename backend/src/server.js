@@ -726,7 +726,12 @@ app.post('/auth/firebase/exchange', async (req, res) => {
 		// Ensure firebase is initialized via centralized helper
 			const firebaseAdmin = require('./services/firebaseAdmin');
 			firebaseAdmin.initFirebase();
-			const decoded = await firebaseAdmin.verifyIdToken(idToken);
+						const decoded = await firebaseAdmin.verifyIdToken(idToken);
+
+				// Reject exchange if the Firebase account email is not verified
+				if (decoded && decoded.email_verified === false) {
+					return res.status(403).json({ error: 'email_not_verified' });
+				}
 
 		// Find or provision a local user record (so backend can store role, devices, refresh tokens)
 		let userDoc;
@@ -992,6 +997,251 @@ app.post('/datasets/upload', authMiddleware, async (req, res) => {
 	const { name, type } = req.body;
 	const ds = await createDataset(name, type, req.user.sub);
 	res.json({ datasetId: ds._id.toString(), status: 'uploaded', name: ds.name });
+});
+
+// List datasets (admin or owner view)
+app.get('/datasets', authMiddleware, async (req, res) => {
+	try {
+		if (USE_IN_MEMORY) {
+			const list = _datasets.map(d => ({ datasetId: d._id, name: d.name, ownerId: d.ownerId, uploadDate: d.uploadDate, versions: (d.versions || []).length }));
+			return res.json({ datasets: list });
+		}
+		const docs = await Dataset.find({}, 'name ownerId uploadDate versions').lean();
+		const list = docs.map(d => ({ datasetId: d._id, name: d.name, ownerId: d.ownerId, uploadDate: d.uploadDate, versions: (d.versions || []).length }));
+		return res.json({ datasets: list });
+	} catch (e) {
+		logger.error({ err: e }, 'list_datasets_failed');
+		return res.status(500).json({ error: 'list_datasets_failed' });
+	}
+});
+
+// Get dataset detail (including versions summary)
+app.get('/datasets/:id', authMiddleware, async (req, res) => {
+	try {
+		const datasetId = req.params.id;
+		if (USE_IN_MEMORY) {
+			const d = _datasets.find(x => String(x._id) === String(datasetId));
+			if (!d) return res.status(404).json({ error: 'not_found' });
+			const versions = (d.versions || []).map(v => ({ versionId: v.versionId, filename: v.filename, rows: v.rows || v.totalRows || 0, uploadedAt: v.uploadedAt || null }));
+			return res.json({ dataset: { datasetId: d._id, name: d.name, ownerId: d.ownerId, uploadDate: d.uploadDate, versions } });
+		}
+		const ds = await Dataset.findById(datasetId).select('name ownerId uploadDate versions');
+		if (!ds) return res.status(404).json({ error: 'not_found' });
+		const versions = (ds.versions || []).map(v => ({ versionId: v.versionId, filename: v.filename, rows: v.rows || v.totalRows || 0, uploadedAt: v.uploadedAt || null }));
+		return res.json({ dataset: { datasetId: ds._id, name: ds.name, ownerId: ds.ownerId, uploadDate: ds.uploadDate, versions } });
+	} catch (e) {
+		logger.error({ err: e }, 'get_dataset_failed');
+		return res.status(500).json({ error: 'get_dataset_failed' });
+	}
+});
+
+// Delete a dataset (and its versions)
+app.delete('/datasets/:id', authMiddleware, async (req, res) => {
+	try {
+		const datasetId = req.params.id;
+		if (USE_IN_MEMORY) {
+			const before = _datasets.length;
+			for (let i = _datasets.length - 1; i >= 0; i--) {
+				if (String(_datasets[i]._id) === String(datasetId)) _datasets.splice(i, 1);
+			}
+			if (_datasets.length === before) return res.status(404).json({ error: 'not_found' });
+			return res.json({ status: 'deleted' });
+		}
+		const doc = await Dataset.findByIdAndDelete(datasetId);
+		if (!doc) return res.status(404).json({ error: 'not_found' });
+		return res.json({ status: 'deleted' });
+	} catch (e) {
+		logger.error({ err: e }, 'delete_dataset_failed');
+		return res.status(500).json({ error: 'delete_dataset_failed' });
+	}
+});
+
+// Return a local "presign" upload URL (MVP - local presign that points back to server-side ingest endpoint)
+app.post('/datasets/:id/presign', authMiddleware, async (req, res) => {
+	try {
+		const datasetId = req.params.id;
+		// callers should POST to the returned `uploadUrl` with JSON { filename, content_base64 }
+		const host = req.get('host');
+		const proto = req.protocol || 'http';
+		const uploadUrl = `${proto}://${host}/datasets/${datasetId}/ingest`;
+		return res.json({ uploadUrl, method: 'POST', contentType: 'application/json' });
+	} catch (e) {
+		logger.error({ err: e }, 'presign_failed');
+		return res.status(500).json({ error: 'presign_failed' });
+	}
+});
+
+// Versions: list versions for a dataset
+app.get('/datasets/:id/versions', authMiddleware, async (req, res) => {
+	try {
+		const datasetId = req.params.id;
+		if (USE_IN_MEMORY) {
+			const d = _datasets.find(x => String(x._id) === String(datasetId));
+			if (!d) return res.status(404).json({ error: 'not_found' });
+			const versions = (d.versions || []).map(v => ({ versionId: v.versionId, filename: v.filename, rows: v.rows || v.totalRows || 0, uploadedAt: v.uploadedAt || null, header: v.header || [], hasBlob: !!v.blob }));
+			return res.json({ datasetId, versions });
+		}
+		const ds = await Dataset.findById(datasetId).select('versions');
+		if (!ds) return res.status(404).json({ error: 'not_found' });
+		const versions = (ds.versions || []).map(v => ({ versionId: v.versionId, filename: v.filename, rows: v.rows || v.totalRows || 0, uploadedAt: v.uploadedAt || null, header: v.header || [], hasBlob: !!v.blob }));
+		return res.json({ datasetId, versions });
+	} catch (e) {
+		logger.error({ err: e }, 'list_versions_failed');
+		return res.status(500).json({ error: 'list_versions_failed' });
+	}
+});
+
+// Get version metadata
+app.get('/datasets/:id/versions/:versionId', authMiddleware, async (req, res) => {
+	try {
+		const { id: datasetId, versionId } = req.params;
+		if (USE_IN_MEMORY) {
+			const d = _datasets.find(x => String(x._id) === String(datasetId));
+			if (!d) return res.status(404).json({ error: 'not_found' });
+			const v = (d.versions || []).find(x => String(x.versionId) === String(versionId));
+			if (!v) return res.status(404).json({ error: 'version_not_found' });
+			return res.json({ version: { versionId: v.versionId, filename: v.filename, rows: v.rows || v.totalRows || 0, header: v.header || [], rows_preview: v.rows_preview || [] } });
+		}
+		const ds = await Dataset.findById(datasetId).select('versions');
+		if (!ds) return res.status(404).json({ error: 'not_found' });
+		const v = (ds.versions || []).find(x => String(x.versionId) === String(versionId));
+		if (!v) return res.status(404).json({ error: 'version_not_found' });
+		return res.json({ version: { versionId: v.versionId, filename: v.filename, rows: v.rows || v.totalRows || 0, header: v.header || [], rows_preview: v.rows_preview || [] } });
+	} catch (e) {
+		logger.error({ err: e }, 'get_version_failed');
+		return res.status(500).json({ error: 'get_version_failed' });
+	}
+});
+
+// Download version CSV (only available if blob was stored)
+app.get('/datasets/:id/versions/:versionId/download', authMiddleware, async (req, res) => {
+	try {
+		const { id: datasetId, versionId } = req.params;
+		if (USE_IN_MEMORY) {
+			const d = _datasets.find(x => String(x._id) === String(datasetId));
+			if (!d) return res.status(404).json({ error: 'not_found' });
+			const v = (d.versions || []).find(x => String(x.versionId) === String(versionId));
+			if (!v) return res.status(404).json({ error: 'version_not_found' });
+			if (!v.blob) return res.status(404).json({ error: 'blob_not_stored' });
+			res.set('Content-Type', 'text/csv');
+			res.set('Content-Disposition', `attachment; filename="${v.filename || 'dataset.csv'}"`);
+			return res.send(v.blob);
+		}
+		const ds = await Dataset.findById(datasetId).select('versions');
+		if (!ds) return res.status(404).json({ error: 'not_found' });
+		const v = (ds.versions || []).find(x => String(x.versionId) === String(versionId));
+		if (!v) return res.status(404).json({ error: 'version_not_found' });
+		if (!v.blob) return res.status(404).json({ error: 'blob_not_stored' });
+		res.set('Content-Type', 'text/csv');
+		res.set('Content-Disposition', `attachment; filename="${v.filename || 'dataset.csv'}"`);
+		return res.send(v.blob);
+	} catch (e) {
+		logger.error({ err: e }, 'download_version_failed');
+		return res.status(500).json({ error: 'download_version_failed' });
+	}
+});
+
+// Delete a version
+app.delete('/datasets/:id/versions/:versionId', authMiddleware, async (req, res) => {
+	try {
+		const { id: datasetId, versionId } = req.params;
+		if (USE_IN_MEMORY) {
+			const d = _datasets.find(x => String(x._id) === String(datasetId));
+			if (!d) return res.status(404).json({ error: 'not_found' });
+			const before = (d.versions || []).length;
+			d.versions = (d.versions || []).filter(x => String(x.versionId) !== String(versionId));
+			const after = (d.versions || []).length;
+			if (before === after) return res.status(404).json({ error: 'version_not_found' });
+			return res.json({ status: 'deleted' });
+		}
+		const ds = await Dataset.findById(datasetId);
+		if (!ds) return res.status(404).json({ error: 'not_found' });
+		const before = (ds.versions || []).length;
+		ds.versions = (ds.versions || []).filter(x => String(x.versionId) !== String(versionId));
+		if (ds.versions.length === before) return res.status(404).json({ error: 'version_not_found' });
+		await ds.save();
+		return res.json({ status: 'deleted' });
+	} catch (e) {
+		logger.error({ err: e }, 'delete_version_failed');
+		return res.status(500).json({ error: 'delete_version_failed' });
+	}
+});
+
+// Ingest uploaded dataset content (expects JSON: { filename, content_base64 })
+app.post('/datasets/:id/ingest', authMiddleware, async (req, res) => {
+	try {
+		const datasetId = req.params.id;
+		const { filename, content_base64 } = req.body || {};
+		if (!filename || !content_base64) return res.status(400).json({ error: 'missing_filename_or_content' });
+		// Validate content size (in bytes after base64 decoding)
+		const MAX_BYTES = Number(process.env.MAX_UPLOAD_BYTES || 5 * 1024 * 1024); // default 5MB
+		let buf;
+		try {
+			buf = Buffer.from(content_base64, 'base64');
+		} catch (e) {
+			return res.status(400).json({ error: 'invalid_base64' });
+		}
+		if (buf.length > MAX_BYTES) return res.status(413).json({ error: 'file_too_large', maxBytes: MAX_BYTES });
+
+		// Parse CSV in-memory and produce header + preview rows; do not write to disk in MVP
+		const text = buf.toString('utf8');
+		// Basic split into non-empty lines
+		const lines = text.split(/\r?\n/).filter(l => l && l.trim().length > 0);
+		if (lines.length === 0) return res.status(400).json({ error: 'empty_csv' });
+
+		// Simple CSV parsing: split on commas and trim. Validate consistent column counts.
+		const previewLimit = Number(process.env.CSV_PREVIEW_ROWS || 10);
+		const header = lines[0].split(',').map(h => h.trim());
+		if (header.length === 0) return res.status(400).json({ error: 'invalid_csv_header' });
+
+		const rows = [];
+		let malformed = false;
+		for (let i = 1; i < Math.min(lines.length, previewLimit + 1); i++) {
+			const row = lines[i].split(',').map(c => c.trim());
+			if (row.length !== header.length) {
+				malformed = true;
+				break;
+			}
+			rows.push(row);
+		}
+		if (malformed) return res.status(400).json({ error: 'malformed_csv', message: 'inconsistent_column_count' });
+
+		const totalRows = Math.max(0, lines.length - 1);
+
+		// Persist version info to Dataset (Mongo) as in-memory metadata (no filesystem path)
+		const versionId = crypto.randomUUID();
+		if (!USE_IN_MEMORY) {
+			try {
+				const ds = await Dataset.findById(datasetId);
+				if (ds) {
+					ds.versions = ds.versions || [];
+					const versionEntry = { versionId, filename, rows: totalRows, header, rows_preview: rows, totalRows };
+					// Optionally store full CSV blob in DB
+					if (process.env.STORE_FULL_CSV_IN_DB === '1') {
+						versionEntry.blob = buf; // Buffer stored by mongoose as Binary
+					}
+					ds.versions.push(versionEntry);
+					await ds.save();
+				}
+			} catch (e) {
+				logger.warn({ err: e, datasetId }, 'persist_dataset_version_failed');
+			}
+		} else {
+			// in-memory: update _datasets if present
+			const d = _datasets.find(x => String(x._id) === String(datasetId));
+			if (d) {
+				d.versions = d.versions || [];
+				const entry = { versionId: String((d.versions.length || 0) + 1), filename, rows: totalRows, header, rows_preview: rows, totalRows };
+				if (process.env.STORE_FULL_CSV_IN_DB === '1') entry.blob = buf;
+				d.versions.push(entry);
+			}
+		}
+
+		return res.json({ status: 'ingested', filename, rows: totalRows, header, rows_preview: rows, versionId });
+	} catch (e) {
+		logger.error({ err: e }, 'ingest_failed');
+		return res.status(500).json({ error: 'ingest_failed' });
+	}
 });
 
 // Evaluation pipeline routes (E2E-DEEP Day17 + Storage Day18)

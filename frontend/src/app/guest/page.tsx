@@ -1,13 +1,11 @@
 "use client";
 import React from 'react';
-import RoleProtected from '@/components/auth/RoleProtected';
 import PageHeader from '@/components/layout/page-header';
 
 export default function GuestLandingPage() {
   return (
-    <RoleProtected required={['guest', 'user', 'reviewer', 'analyst', 'admin']}>
-      <div className="p-8 max-w-5xl mx-auto">
-        <PageHeader title="EthixAI — Responsible AI" subtitle="Explainability & fairness tooling for regulated teams" />
+    <div className="p-8 max-w-5xl mx-auto">
+      <PageHeader title="EthixAI — Responsible AI" subtitle="Explainability & fairness tooling for regulated teams" />
 
         <section className="mt-6 grid grid-cols-1 md:grid-cols-2 gap-6">
           <div className="rounded-lg border bg-white p-6">
@@ -41,6 +39,5 @@ export default function GuestLandingPage() {
           </div>
         </section>
       </div>
-    </RoleProtected>
   );
 }

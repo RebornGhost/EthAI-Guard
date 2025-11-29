@@ -7,6 +7,21 @@ let initialized = false;
 function initFirebase() {
   if (initialized) return;
   try {
+    // Support Firebase Auth emulator in CI/test by allowing initialization
+    // when FIREBASE_AUTH_EMULATOR_HOST is set. This avoids requiring a
+    // full service account JSON in ephemeral test environments.
+    if (process.env.FIREBASE_AUTH_EMULATOR_HOST) {
+      const projectId = process.env.FIREBASE_PROJECT_ID || 'demo-project';
+      try {
+        admin.initializeApp({ projectId });
+        initialized = true;
+        logger.info('firebase_admin_initialized_emulator');
+        return;
+      } catch (e) {
+        logger.warn({ err: e }, 'firebase_admin_emulator_init_failed');
+        // fallthrough to other init methods
+      }
+    }
     const googleCredsPath = process.env.GOOGLE_APPLICATION_CREDENTIALS;
     if (googleCredsPath && fs.existsSync(googleCredsPath)) {
       try {
