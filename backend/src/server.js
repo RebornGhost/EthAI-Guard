@@ -999,6 +999,177 @@ app.post('/datasets/upload', authMiddleware, async (req, res) => {
 	res.json({ datasetId: ds._id.toString(), status: 'uploaded', name: ds.name });
 });
 
+// v1 API: datasets (wrapper endpoints to provide /v1 surface area)
+app.post('/v1/datasets', authMiddleware, async (req, res) => {
+	try {
+		const { name, type } = req.body;
+		const ds = await createDataset(name, type, req.user.sub);
+		return res.json({ datasetId: ds._id.toString(), status: 'created', name: ds.name });
+	} catch (e) {
+		logger.error({ err: e }, 'v1_create_dataset_failed');
+		return res.status(500).json({ error: 'create_failed' });
+	}
+});
+
+app.get('/v1/datasets', authMiddleware, async (req, res) => {
+	try {
+		if (USE_IN_MEMORY) {
+			const list = _datasets.map(d => ({ datasetId: d._id, name: d.name, ownerId: d.ownerId, uploadDate: d.uploadDate, versions: (d.versions || []).length }));
+			return res.json({ datasets: list });
+		}
+		const docs = await Dataset.find({}, 'name ownerId uploadDate versions').lean();
+		const list = docs.map(d => ({ datasetId: d._id, name: d.name, ownerId: d.ownerId, uploadDate: d.uploadDate, versions: (d.versions || []).length }));
+		return res.json({ datasets: list });
+	} catch (e) {
+		logger.error({ err: e }, 'v1_list_datasets_failed');
+		return res.status(500).json({ error: 'list_failed' });
+	}
+});
+
+app.get('/v1/datasets/:id', authMiddleware, async (req, res) => {
+	try {
+		const datasetId = req.params.id;
+		if (USE_IN_MEMORY) {
+			const d = _datasets.find(x => String(x._id) === String(datasetId));
+			if (!d) return res.status(404).json({ error: 'not_found' });
+			const versions = (d.versions || []).map(v => ({ versionId: v.versionId, filename: v.filename, rows: v.rows || v.totalRows || 0, uploadedAt: v.uploadedAt || null }));
+			return res.json({ dataset: { datasetId: d._id, name: d.name, ownerId: d.ownerId, uploadDate: d.uploadDate, versions } });
+		}
+		const ds = await Dataset.findById(datasetId).select('name ownerId uploadDate versions');
+		if (!ds) return res.status(404).json({ error: 'not_found' });
+		const versions = (ds.versions || []).map(v => ({ versionId: v.versionId, filename: v.filename, rows: v.rows || v.totalRows || 0, uploadedAt: v.uploadedAt || null }));
+		return res.json({ dataset: { datasetId: ds._id, name: ds.name, ownerId: ds.ownerId, uploadDate: ds.uploadDate, versions } });
+	} catch (e) {
+		logger.error({ err: e }, 'v1_get_dataset_failed');
+		return res.status(500).json({ error: 'get_failed' });
+	}
+});
+
+app.delete('/v1/datasets/:id', authMiddleware, async (req, res) => {
+	try {
+		const datasetId = req.params.id;
+		if (USE_IN_MEMORY) {
+			const before = _datasets.length;
+			for (let i = _datasets.length - 1; i >= 0; i--) {
+				if (String(_datasets[i]._id) === String(datasetId)) _datasets.splice(i, 1);
+			}
+			if (_datasets.length === before) return res.status(404).json({ error: 'not_found' });
+			return res.json({ status: 'deleted' });
+		}
+		const doc = await Dataset.findByIdAndDelete(datasetId);
+		if (!doc) return res.status(404).json({ error: 'not_found' });
+		return res.json({ status: 'deleted' });
+	} catch (e) {
+		logger.error({ err: e }, 'v1_delete_dataset_failed');
+		return res.status(500).json({ error: 'delete_failed' });
+	}
+});
+
+// v1 presign/versions/ingest map to same semantics as legacy endpoints
+app.post('/v1/datasets/:id/presign', authMiddleware, async (req, res) => {
+	try {
+		const datasetId = req.params.id;
+		const host = req.get('host');
+		const proto = req.protocol || 'http';
+		const uploadUrl = `${proto}://${host}/v1/datasets/${datasetId}/ingest`;
+		return res.json({ uploadUrl, method: 'POST', contentType: 'application/json' });
+	} catch (e) {
+		logger.error({ err: e }, 'v1_presign_failed');
+		return res.status(500).json({ error: 'presign_failed' });
+	}
+});
+
+app.get('/v1/datasets/:id/versions', authMiddleware, async (req, res) => {
+	try {
+		const datasetId = req.params.id;
+		if (USE_IN_MEMORY) {
+			const d = _datasets.find(x => String(x._id) === String(datasetId));
+			if (!d) return res.status(404).json({ error: 'not_found' });
+			const versions = (d.versions || []).map(v => ({ versionId: v.versionId, filename: v.filename, rows: v.rows || v.totalRows || 0, uploadedAt: v.uploadedAt || null, header: v.header || [], hasBlob: !!v.blob }));
+			return res.json({ datasetId, versions });
+		}
+		const ds = await Dataset.findById(datasetId).select('versions');
+		if (!ds) return res.status(404).json({ error: 'not_found' });
+		const versions = (ds.versions || []).map(v => ({ versionId: v.versionId, filename: v.filename, rows: v.rows || v.totalRows || 0, uploadedAt: v.uploadedAt || null, header: v.header || [], hasBlob: !!v.blob }));
+		return res.json({ datasetId, versions });
+	} catch (e) {
+		logger.error({ err: e }, 'v1_list_versions_failed');
+		return res.status(500).json({ error: 'list_versions_failed' });
+	}
+});
+
+app.get('/v1/datasets/:id/versions/:versionId', authMiddleware, async (req, res) => {
+	try {
+		const { id: datasetId, versionId } = req.params;
+		if (USE_IN_MEMORY) {
+			const d = _datasets.find(x => String(x._id) === String(datasetId));
+			if (!d) return res.status(404).json({ error: 'not_found' });
+			const v = (d.versions || []).find(x => String(x.versionId) === String(versionId));
+			if (!v) return res.status(404).json({ error: 'version_not_found' });
+			return res.json({ version: { versionId: v.versionId, filename: v.filename, rows: v.rows || v.totalRows || 0, header: v.header || [], rows_preview: v.rows_preview || [] } });
+		}
+		const ds = await Dataset.findById(datasetId).select('versions');
+		if (!ds) return res.status(404).json({ error: 'not_found' });
+		const v = (ds.versions || []).find(x => String(x.versionId) === String(versionId));
+		if (!v) return res.status(404).json({ error: 'version_not_found' });
+		return res.json({ version: { versionId: v.versionId, filename: v.filename, rows: v.rows || v.totalRows || 0, header: v.header || [], rows_preview: v.rows_preview || [] } });
+	} catch (e) {
+		logger.error({ err: e }, 'v1_get_version_failed');
+		return res.status(500).json({ error: 'get_version_failed' });
+	}
+});
+
+app.post('/v1/datasets/:id/ingest', authMiddleware, async (req, res) => {
+	try {
+		const datasetId = req.params.id;
+		const { filename, content_base64 } = req.body || {};
+		if (!filename || !content_base64) return res.status(400).json({ error: 'missing_filename_or_content' });
+		const MAX_BYTES = Number(process.env.MAX_UPLOAD_BYTES || 5 * 1024 * 1024);
+		let buf;
+		try { buf = Buffer.from(content_base64, 'base64'); } catch (e) { return res.status(400).json({ error: 'invalid_base64' }); }
+		if (buf.length > MAX_BYTES) return res.status(413).json({ error: 'file_too_large', maxBytes: MAX_BYTES });
+		const csvParser = require('./utils/../utils/csvParser');
+		let header, rows, totalRows;
+		try {
+			const parsed = csvParser.parseCsv(buf, { previewRows: Number(process.env.CSV_PREVIEW_ROWS || 10) });
+			header = parsed.header; rows = parsed.rows_preview; totalRows = parsed.totalRows;
+		} catch (pe) {
+			if (pe.message === 'empty_csv') return res.status(400).json({ error: 'empty_csv' });
+			if (pe.message === 'invalid_csv' || pe.message === 'invalid_csv_header') return res.status(400).json({ error: 'invalid_csv_header' });
+			if (pe.message === 'malformed_csv') return res.status(400).json({ error: 'malformed_csv', message: 'inconsistent_column_count' });
+			logger.warn({ err: pe }, 'v1_csv_parse_failed');
+			return res.status(400).json({ error: 'invalid_csv' });
+		}
+
+		const versionId = crypto.randomUUID();
+		if (!USE_IN_MEMORY) {
+			try {
+				const ds = await Dataset.findById(datasetId);
+				if (ds) {
+					ds.versions = ds.versions || [];
+					const versionEntry = { versionId, filename, rows: totalRows, header, rows_preview: rows, totalRows };
+					if (process.env.STORE_FULL_CSV_IN_DB === '1') versionEntry.blob = buf;
+					ds.versions.push(versionEntry);
+					await ds.save();
+				}
+			} catch (e) { logger.warn({ err: e, datasetId }, 'v1_persist_dataset_version_failed'); }
+		} else {
+			const d = _datasets.find(x => String(x._id) === String(datasetId));
+			if (d) {
+				d.versions = d.versions || [];
+				const entry = { versionId: String((d.versions.length || 0) + 1), filename, rows: totalRows, header, rows_preview: rows, totalRows };
+				if (process.env.STORE_FULL_CSV_IN_DB === '1') entry.blob = buf;
+				d.versions.push(entry);
+			}
+		}
+
+		return res.json({ status: 'ingested', filename, rows: totalRows, header, rows_preview: rows, versionId });
+	} catch (e) {
+		logger.error({ err: e }, 'v1_ingest_failed');
+		return res.status(500).json({ error: 'ingest_failed' });
+	}
+});
+
 // List datasets (admin or owner view)
 app.get('/datasets', authMiddleware, async (req, res) => {
 	try {
@@ -1183,30 +1354,21 @@ app.post('/datasets/:id/ingest', authMiddleware, async (req, res) => {
 		}
 		if (buf.length > MAX_BYTES) return res.status(413).json({ error: 'file_too_large', maxBytes: MAX_BYTES });
 
-		// Parse CSV in-memory and produce header + preview rows; do not write to disk in MVP
-		const text = buf.toString('utf8');
-		// Basic split into non-empty lines
-		const lines = text.split(/\r?\n/).filter(l => l && l.trim().length > 0);
-		if (lines.length === 0) return res.status(400).json({ error: 'empty_csv' });
-
-		// Simple CSV parsing: split on commas and trim. Validate consistent column counts.
-		const previewLimit = Number(process.env.CSV_PREVIEW_ROWS || 10);
-		const header = lines[0].split(',').map(h => h.trim());
-		if (header.length === 0) return res.status(400).json({ error: 'invalid_csv_header' });
-
-		const rows = [];
-		let malformed = false;
-		for (let i = 1; i < Math.min(lines.length, previewLimit + 1); i++) {
-			const row = lines[i].split(',').map(c => c.trim());
-			if (row.length !== header.length) {
-				malformed = true;
-				break;
-			}
-			rows.push(row);
+		// Parse CSV in-memory and produce header + preview rows; use RFC4180-compliant parser
+		const csvParser = require('./utils/csvParser');
+		let header, rows, totalRows;
+		try {
+			const parsed = csvParser.parseCsv(buf, { previewRows: Number(process.env.CSV_PREVIEW_ROWS || 10) });
+			header = parsed.header;
+			rows = parsed.rows_preview;
+			totalRows = parsed.totalRows;
+		} catch (pe) {
+			if (pe.message === 'empty_csv') return res.status(400).json({ error: 'empty_csv' });
+			if (pe.message === 'invalid_csv' || pe.message === 'invalid_csv_header') return res.status(400).json({ error: 'invalid_csv_header' });
+			if (pe.message === 'malformed_csv') return res.status(400).json({ error: 'malformed_csv', message: 'inconsistent_column_count' });
+			logger.warn({ err: pe }, 'csv_parse_failed');
+			return res.status(400).json({ error: 'invalid_csv' });
 		}
-		if (malformed) return res.status(400).json({ error: 'malformed_csv', message: 'inconsistent_column_count' });
-
-		const totalRows = Math.max(0, lines.length - 1);
 
 		// Persist version info to Dataset (Mongo) as in-memory metadata (no filesystem path)
 		const versionId = crypto.randomUUID();
