@@ -91,9 +91,14 @@ jobs:
         env:
           MONGO_URL: mongodb://localhost:27017/ethixai
         run: |
-          python main.py &
+          set -euo pipefail
+          # Start using uvicorn (background) and capture logs to a file so we can upload them on failure
+          nohup uvicorn main:app --host 0.0.0.0 --port 8100 > aicore.log 2>&1 &
           echo $! > aicore.pid
-          sleep 10
+          echo "started ai_core (pid=$(cat aicore.pid)), tailing first lines of aicore.log"
+          head -n 200 aicore.log || true
+          # wait for health endpoint to become available (fail early with logs if not)
+          timeout 60 bash -c 'until curl -fsS http://localhost:8100/health >/dev/null 2>&1; do sleep 2; done' || (echo "ai_core failed to start within 60s"; echo "--- aicore.log ---"; tail -n 500 aicore.log || true; echo "--- ps aux (uvicorn) ---"; ps aux | egrep "uvicorn|main:app" || true; exit 1)
       
       - name: Wait for services
         run: |
@@ -119,8 +124,14 @@ jobs:
         if: failure()
         run: |
           mkdir -p test-artifacts
+          echo "=== backend log ==="
           cat backend/backend.log || echo "No backend log"
+          echo "=== ai_core log ==="
           cat ai_core/aicore.log || echo "No ai_core log"
+          echo "=== process list ==="
+          ps aux | head -n 200 || true
+          echo "=== docker ps (if any) ==="
+          docker ps --no-trunc || true
       
       - name: Upload test artifacts
         if: always()
