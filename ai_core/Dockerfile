@@ -1,6 +1,7 @@
 FROM python:3.11-slim
 
 WORKDIR /app
+ENV PYTHONPATH=/app
 
 # Install system build deps needed to compile scientific packages (numpy/scipy/numba/shap)
 # Keep the installed set minimal to reduce image size.
@@ -23,5 +24,9 @@ RUN pip install --upgrade pip setuptools wheel && \
 	pip install --no-cache-dir -r /app/requirements.txt
 
 COPY . /app
+
+# Install the package in editable mode so tests and runtime can import `ai_core`
+# even when the working directory or sys.path differs in CI/container runs.
+RUN pip install --no-cache-dir -e /app
 
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8100"]
