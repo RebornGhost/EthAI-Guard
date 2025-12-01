@@ -44,7 +44,17 @@ export default function ModelsPage() {
 
         <div className="mb-4 flex gap-2 items-center">
           <label className="text-sm text-gray-600">Model ID</label>
-          <input value={modelId} onChange={e => setModelId(e.target.value)} className="border px-2 py-1 rounded" />
+          <input
+            value={modelId}
+            onChange={e => {
+              const val = e.target.value;
+              // Only allow alphanumeric, underscore, dash
+              if (/^[\w-]+$/.test(val)) {
+                setModelId(val);
+              }
+            }}
+            className="border px-2 py-1 rounded"
+          />
           <button onClick={fetchVersions} className="bg-blue-600 text-white px-3 py-1 rounded">Refresh</button>
         </div>
         {loading ? <p>Loading…</p> : (
