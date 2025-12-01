@@ -48,7 +48,7 @@ jobs:
     runs-on: ubuntu-latest
     
     steps:
-  - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
       - name: Setup Node.js
         uses: actions/setup-node@v3
@@ -95,9 +95,14 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}  # Optional
 
+      - name: Check Gitleaks SARIF exists
+        id: check-gitleaks-sarif
+        run: |
+          if [ -f results.sarif ]; then echo "exists=true" >> $GITHUB_OUTPUT; else echo "exists=false" >> $GITHUB_OUTPUT; fi
+
       - name: Upload Gitleaks SARIF to Code Scanning
-        uses: github/codeql-action/upload-sarif@v3
-        if: always()
+        if: ${{ steps.check-gitleaks-sarif.outputs.exists == 'true' }}
+        uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: results.sarif
           category: gitleaks
@@ -136,9 +141,14 @@ jobs:
           exit-code: '1'  # Fail on HIGH/CRITICAL
         continue-on-error: true
 
+      - name: Check Trivy backend SARIF exists
+        id: check-trivy-backend
+        run: |
+          if [ -f trivy-backend.sarif ]; then echo "exists=true" >> $GITHUB_OUTPUT; else echo "exists=false" >> $GITHUB_OUTPUT; fi
+
       - name: Upload Trivy results (backend)
-        uses: github/codeql-action/upload-sarif@v3
-        if: always()
+        if: ${{ steps.check-trivy-backend.outputs.exists == 'true' }}
+        uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: 'trivy-backend.sarif'
           category: 'trivy-backend'
@@ -154,9 +164,14 @@ jobs:
           exit-code: '1'  # Fail on HIGH/CRITICAL
         continue-on-error: true
 
+      - name: Check Trivy ai_core SARIF exists
+        id: check-trivy-ai-core
+        run: |
+          if [ -f trivy-ai-core.sarif ]; then echo "exists=true" >> $GITHUB_OUTPUT; else echo "exists=false" >> $GITHUB_OUTPUT; fi
+
       - name: Upload Trivy results (ai_core)
-        uses: github/codeql-action/upload-sarif@v3
-        if: always()
+        if: ${{ steps.check-trivy-ai-core.outputs.exists == 'true' }}
+        uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: 'trivy-ai-core.sarif'
           category: 'trivy-ai-core'
@@ -172,7 +187,7 @@ jobs:
     runs-on: ubuntu-latest
     
     steps:
-  - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
       - name: Setup Node.js
         uses: actions/setup-node@v3
