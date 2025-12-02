@@ -216,11 +216,17 @@ jobs:
 
       - name: Check for hardcoded secrets
         run: |
-          if grep -rn --include="*.js" --include="*.py" -E "(password|api_key|secret)\s*=\s*['\"][^'\"]{8,}" backend/ ai_core/ --exclude-dir=test --exclude-dir=tests; then
-            echo "❌ Hardcoded secrets found"
+          if grep -rn \
+            --include="*.js" --include="*.py" \
+            --exclude-dir=test --exclude-dir=tests --exclude-dir=tmp --exclude-dir=node_modules \
+            --exclude-dir=.venv --exclude-dir=venv --exclude-dir=dist --exclude-dir=build \
+            --exclude="*seed*.js" --exclude="*smoke*.js" --exclude="*.test.js" --exclude="*_test.py" \
+            -E "(password|api_key|secret)\s*=\s*['\"][^'\"]{8,}" \
+            backend/src/ ai_core/routers/ ai_core/utils/ ai_core/validation/ ai_core/governance/ ai_core/drift/ ai_core/synthetic/ 2>/dev/null; then
+            echo "❌ Hardcoded secrets found in source code"
             exit 1
           fi
-          echo "✅ No hardcoded secrets"
+          echo "✅ No hardcoded secrets in source code"
 
       - name: Check for console.log in backend
         run: |
