@@ -670,7 +670,7 @@ router.post('/v1/users/sync-claims', authGuard, requireRole('admin'), async (req
       logger.info({ email }, 'claims_sync_skipped_in_memory');
       return res.json({ status: 'skipped', message: 'in_memory_mode' });
     }
-    const u = await User.findOne({ email });
+    const u = await User.findOne({ email: { $eq: email } });
     if (!u) return res.status(404).json({ error: 'user_not_found' });
 
     // delegate to id endpoint logic by calling auth functions inline
