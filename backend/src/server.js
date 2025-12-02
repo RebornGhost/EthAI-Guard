@@ -1211,7 +1211,7 @@ app.get('/v1/datasets/:id/versions/:versionId', authMiddleware, async (req, res)
       if (!v) {
         return res.status(404).json({ error: 'version_not_found' });
       }
-      return res.json({ version: { versionId: v.versionId, filename: v.filename, rows: v.rows || v.totalRows || 0, header: v.header || [], rows_preview: v.rows_preview || [] } });
+      return res.json({ version: { versionId: v.versionId, filename: v.filename, rows: v.rows || v.totalRows || 0, header: v.header || [], rowsPreview: v.rowsPreview || [] } });
     }
     const ds = await Dataset.findById(datasetId).select('versions');
     if (!ds) {
@@ -1221,7 +1221,7 @@ app.get('/v1/datasets/:id/versions/:versionId', authMiddleware, async (req, res)
     if (!v) {
       return res.status(404).json({ error: 'version_not_found' });
     }
-    return res.json({ version: { versionId: v.versionId, filename: v.filename, rows: v.rows || v.totalRows || 0, header: v.header || [], rows_preview: v.rows_preview || [] } });
+    return res.json({ version: { versionId: v.versionId, filename: v.filename, rows: v.rows || v.totalRows || 0, header: v.header || [], rowsPreview: v.rowsPreview || [] } });
   } catch (e) {
     logger.error({ err: e }, 'v1_get_version_failed');
     return res.status(500).json({ error: 'get_version_failed' });
@@ -1249,7 +1249,7 @@ app.post('/v1/datasets/:id/ingest', authMiddleware, async (req, res) => {
     let header, rows, totalRows;
     try {
       const parsed = csvParser.parseCsv(buf, { previewRows: Number(process.env.CSV_PREVIEW_ROWS || 10) });
-      header = parsed.header; rows = parsed.rows_preview; totalRows = parsed.totalRows;
+      header = parsed.header; rows = parsed.rowsPreview; totalRows = parsed.totalRows;
     } catch (pe) {
       if (pe.message === 'empty_csv') {
         return res.status(400).json({ error: 'empty_csv' });
@@ -1270,7 +1270,7 @@ app.post('/v1/datasets/:id/ingest', authMiddleware, async (req, res) => {
         const ds = await Dataset.findById(datasetId);
         if (ds) {
           ds.versions = ds.versions || [];
-          const versionEntry = { versionId, filename, rows: totalRows, header, rows_preview: rows, totalRows };
+          const versionEntry = { versionId, filename, rows: totalRows, header, rowsPreview: rows, totalRows };
           if (process.env.STORE_FULL_CSV_IN_DB === '1') {
             versionEntry.blob = buf;
           }
@@ -1284,7 +1284,7 @@ app.post('/v1/datasets/:id/ingest', authMiddleware, async (req, res) => {
       const d = _datasets.find(x => String(x._id) === String(datasetId));
       if (d) {
         d.versions = d.versions || [];
-        const entry = { versionId: String((d.versions.length || 0) + 1), filename, rows: totalRows, header, rows_preview: rows, totalRows };
+        const entry = { versionId: String((d.versions.length || 0) + 1), filename, rows: totalRows, header, rowsPreview: rows, totalRows };
         if (process.env.STORE_FULL_CSV_IN_DB === '1') {
           entry.blob = buf;
         }
@@ -1292,7 +1292,7 @@ app.post('/v1/datasets/:id/ingest', authMiddleware, async (req, res) => {
       }
     }
 
-    return res.json({ status: 'ingested', filename, rows: totalRows, header, rows_preview: rows, versionId });
+    return res.json({ status: 'ingested', filename, rows: totalRows, header, rowsPreview: rows, versionId });
   } catch (e) {
     logger.error({ err: e }, 'v1_ingest_failed');
     return res.status(500).json({ error: 'ingest_failed' });
@@ -1535,7 +1535,7 @@ app.post('/datasets/:id/ingest', authMiddleware, async (req, res) => {
     try {
       const parsed = csvParser.parseCsv(buf, { previewRows: Number(process.env.CSV_PREVIEW_ROWS || 10) });
       header = parsed.header;
-      rows = parsed.rows_preview;
+      rows = parsed.rowsPreview;
       totalRows = parsed.totalRows;
     } catch (pe) {
       if (pe.message === 'empty_csv') {
@@ -1558,7 +1558,7 @@ app.post('/datasets/:id/ingest', authMiddleware, async (req, res) => {
         const ds = await Dataset.findById(datasetId);
         if (ds) {
           ds.versions = ds.versions || [];
-          const versionEntry = { versionId, filename, rows: totalRows, header, rows_preview: rows, totalRows };
+          const versionEntry = { versionId, filename, rows: totalRows, header, rowsPreview: rows, totalRows };
           // Optionally store full CSV blob in DB
           if (process.env.STORE_FULL_CSV_IN_DB === '1') {
             versionEntry.blob = buf; // Buffer stored by mongoose as Binary
@@ -1574,7 +1574,7 @@ app.post('/datasets/:id/ingest', authMiddleware, async (req, res) => {
       const d = _datasets.find(x => String(x._id) === String(datasetId));
       if (d) {
         d.versions = d.versions || [];
-        const entry = { versionId: String((d.versions.length || 0) + 1), filename, rows: totalRows, header, rows_preview: rows, totalRows };
+        const entry = { versionId: String((d.versions.length || 0) + 1), filename, rows: totalRows, header, rowsPreview: rows, totalRows };
         if (process.env.STORE_FULL_CSV_IN_DB === '1') {
           entry.blob = buf;
         }
@@ -1582,7 +1582,7 @@ app.post('/datasets/:id/ingest', authMiddleware, async (req, res) => {
       }
     }
 
-    return res.json({ status: 'ingested', filename, rows: totalRows, header, rows_preview: rows, versionId });
+    return res.json({ status: 'ingested', filename, rows: totalRows, header, rowsPreview: rows, versionId });
   } catch (e) {
     logger.error({ err: e }, 'ingest_failed');
     return res.status(500).json({ error: 'ingest_failed' });

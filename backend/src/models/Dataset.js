@@ -14,7 +14,7 @@ const DatasetSchema = new mongoose.Schema({
       uploadedAt: { type: Date, default: Date.now },
       // CSV metadata stored for quick preview and basic schema
       header: [String],
-      rows_preview: [[String]],
+      rowsPreview: [[String]],
       totalRows: Number,
       // optional: store full CSV as blob (Buffer) when STORE_FULL_CSV_IN_DB=1
       blob: Buffer,
