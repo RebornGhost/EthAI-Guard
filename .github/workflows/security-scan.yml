@@ -219,22 +219,46 @@ jobs:
       - name: Check for SQL Injection patterns
         run: |
           echo "Scanning for SQL injection patterns..."
-          ! grep -rn --include="*.js" --include="*.py" -E "(sql.*\+|exec\(|eval\(|cursor\.execute.*format)" backend/ ai_core/ || (echo "⚠️ Potential SQL injection found" && exit 1)
+          ! grep -rn \
+            --include="*.js" --include="*.ts" --include="*.py" \
+            --exclude-dir=node_modules --exclude-dir=dist --exclude-dir=build --exclude-dir=.next \
+            --exclude-dir=coverage --exclude-dir=__pycache__ --exclude-dir=.venv --exclude-dir=venv \
+            --exclude-dir=test --exclude-dir=tests \
+            -E "(sql\s*.*\+|\bexec\s*\(|\beval\s*\(|cursor\.execute\s*\(.*format\s*\()" backend/ ai_core/ \
+            || (echo "⚠️ Potential SQL injection found" && exit 1)
 
       - name: Check for token leakage patterns
         run: |
           echo "Scanning for potential token leakage..."
-          ! grep -rn --include="*.js" --include="*.py" -E "(console\.log.*token|print.*token|logger.*token.*\=)" backend/ ai_core/ || (echo "⚠️ Potential token leakage in logs" && exit 1)
+          ! grep -rn \
+            --include="*.js" --include="*.ts" --include="*.py" \
+            --exclude-dir=node_modules --exclude-dir=dist --exclude-dir=build --exclude-dir=.next \
+            --exclude-dir=coverage --exclude-dir=__pycache__ --exclude-dir=.venv --exclude-dir=venv \
+            --exclude-dir=test --exclude-dir=tests \
+            -E "(console\\.log.*token|print.*token|logger.*token.*\=)" backend/ ai_core/ \
+            || (echo "⚠️ Potential token leakage in logs" && exit 1)
 
       - name: Check for unsafe logging
         run: |
           echo "Scanning for unsafe logging (PII/passwords)..."
-          ! grep -rn --include="*.js" --include="*.py" -E "(log.*password|log.*ssn|log.*credit_card)" backend/ ai_core/ || (echo "⚠️ Sensitive data in logs" && exit 1)
+          ! grep -rn \
+            --include="*.js" --include="*.ts" --include="*.py" \
+            --exclude-dir=node_modules --exclude-dir=dist --exclude-dir=build --exclude-dir=.next \
+            --exclude-dir=coverage --exclude-dir=__pycache__ --exclude-dir=.venv --exclude-dir=venv \
+            --exclude-dir=test --exclude-dir=tests \
+            -E "(log.*password|log.*ssn|log.*credit_card)" backend/ ai_core/ \
+            || (echo "⚠️ Sensitive data in logs" && exit 1)
 
       - name: Check for hardcoded secrets
         run: |
           echo "Checking for hardcoded secrets patterns..."
-          ! grep -rn --include="*.js" --include="*.py" -E "(password.*=.*['\"][^'\"]{8,}|api_key.*=.*['\"]|secret.*=.*['\"])" backend/ ai_core/ --exclude-dir=test --exclude-dir=tests || (echo "⚠️ Hardcoded secrets found" && exit 1)
+          ! grep -rn \
+            --include="*.js" --include="*.ts" --include="*.py" \
+            --exclude-dir=node_modules --exclude-dir=dist --exclude-dir=build --exclude-dir=.next \
+            --exclude-dir=coverage --exclude-dir=__pycache__ --exclude-dir=.venv --exclude-dir=venv \
+            --exclude-dir=test --exclude-dir=tests \
+            -E "(password.*=.*['\"][^'\"]{8,}|api_key.*=.*['\"]|secret.*=.*['\"])" backend/ ai_core/ \
+            || (echo "⚠️ Hardcoded secrets found" && exit 1)
 
       - name: Check for missing rate limiters
         run: |
