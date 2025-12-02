@@ -5,17 +5,23 @@ const fs = require('fs');
 function findWorkerPath() {
   // Prefer repo-root based path (when process started from repo root)
   const p1 = path.resolve(process.cwd(), 'tools', 'status', 'worker.js');
-  if (fs.existsSync(p1)) return p1;
+  if (fs.existsSync(p1)) {
+    return p1;
+  }
 
   // Fallback relative to this file (backend/src -> repo root)
   const p2 = path.join(__dirname, '..', '..', 'tools', 'status', 'worker.js');
-  if (fs.existsSync(p2)) return p2;
+  if (fs.existsSync(p2)) {
+    return p2;
+  }
 
   return null;
 }
 
 function startWorkerIfEnabled() {
-  if (process.env.ENABLE_STATUS_WORKER !== '1') return null;
+  if (process.env.ENABLE_STATUS_WORKER !== '1') {
+    return null;
+  }
 
   const workerPath = findWorkerPath();
   if (!workerPath) {
@@ -27,7 +33,7 @@ function startWorkerIfEnabled() {
     const child = spawn(process.execPath, [workerPath], {
       stdio: ['ignore', 'pipe', 'pipe'],
       detached: true,
-      env: { ...process.env }
+      env: { ...process.env },
     });
 
     child.stdout.on('data', d => console.log('[status-worker]', d.toString().trim()));

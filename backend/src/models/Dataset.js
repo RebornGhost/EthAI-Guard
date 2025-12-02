@@ -19,9 +19,9 @@ const DatasetSchema = new mongoose.Schema({
       // optional: store full CSV as blob (Buffer) when STORE_FULL_CSV_IN_DB=1
       blob: Buffer,
       // legacy/back-compat: previously we stored a filesystem path (not used in new flow)
-      path: String
-    }
-  ]
+      path: String,
+    },
+  ],
 });
 
 module.exports = mongoose.model('Dataset', DatasetSchema);

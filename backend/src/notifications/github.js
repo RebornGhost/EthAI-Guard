@@ -1,6 +1,6 @@
 /**
  * GitHub Issues Notification Handler
- * 
+ *
  * Creates GitHub Issues for critical drift alerts.
  */
 
@@ -75,7 +75,7 @@ ${alert.severity === 'critical' ? `
     title: `[${severityLabel.toUpperCase()}] ${alert.type.replace(/_/g, ' ')}: ${alert.metric_name} (${alert.model_id})`,
     body: issueBody,
     labels: ['drift-alert', severityLabel, typeLabel, 'automated'],
-    assignees: process.env.GITHUB_ASSIGNEES ? process.env.GITHUB_ASSIGNEES.split(',') : []
+    assignees: process.env.GITHUB_ASSIGNEES ? process.env.GITHUB_ASSIGNEES.split(',') : [],
   };
 
   try {
@@ -86,10 +86,10 @@ ${alert.severity === 'critical' ? `
         headers: {
           'Authorization': `Bearer ${token}`,
           'Accept': 'application/vnd.github.v3+json',
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
         },
-        body: JSON.stringify(issueData)
-      }
+        body: JSON.stringify(issueData),
+      },
     );
 
     if (!response.ok) {
@@ -129,10 +129,10 @@ async function addIssueComment(issueNumber, comment, token, repo) {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Accept': 'application/vnd.github.v3+json',
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ body: comment })
-      }
+        body: JSON.stringify({ body: comment }),
+      },
     );
 
     if (!response.ok) {
@@ -180,10 +180,10 @@ ${resolution}
         headers: {
           'Authorization': `Bearer ${token}`,
           'Accept': 'application/vnd.github.v3+json',
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ state: 'closed' })
-      }
+        body: JSON.stringify({ state: 'closed' }),
+      },
     );
 
     if (!response.ok) {
@@ -201,5 +201,5 @@ ${resolution}
 module.exports = {
   createGitHubIssue,
   addIssueComment,
-  closeIssue
+  closeIssue,
 };

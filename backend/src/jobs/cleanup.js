@@ -1,6 +1,6 @@
 /**
  * Data Retention Cleanup Job
- * 
+ *
  * Aggregates high-frequency drift snapshots into daily summaries
  * and enforces retention policies.
  */
@@ -13,7 +13,7 @@
 async function aggregateDailySnapshots(db, targetDate) {
   const dayStart = new Date(targetDate);
   dayStart.setHours(0, 0, 0, 0);
-  
+
   const dayEnd = new Date(targetDate);
   dayEnd.setHours(23, 59, 59, 999);
 
@@ -23,8 +23,8 @@ async function aggregateDailySnapshots(db, targetDate) {
   const snapshots = await db.collection('drift_snapshots').find({
     window_end: {
       $gte: dayStart.toISOString(),
-      $lte: dayEnd.toISOString()
-    }
+      $lte: dayEnd.toISOString(),
+    },
   }).toArray();
 
   if (snapshots.length === 0) {
@@ -47,7 +47,7 @@ async function aggregateDailySnapshots(db, targetDate) {
     // Aggregate metrics
     const criticalCounts = modelSnapshots.map(s => s.critical_count || 0);
     const warningCounts = modelSnapshots.map(s => s.warning_count || 0);
-    
+
     const summary = {
       model_id,
       date: dayStart.toISOString().slice(0, 10),
@@ -58,7 +58,7 @@ async function aggregateDailySnapshots(db, targetDate) {
       max_warning_count: Math.max(...warningCounts),
       overall_status: modelSnapshots[modelSnapshots.length - 1].overall_status,
       needs_retraining: modelSnapshots.some(s => s.needs_retraining),
-      created_at: new Date().toISOString()
+      created_at: new Date().toISOString(),
     };
 
     summaries.push(summary);
@@ -73,7 +73,7 @@ async function aggregateDailySnapshots(db, targetDate) {
   // Delete old high-frequency snapshots (keep only last 7 days)
   const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
   const deleteResult = await db.collection('drift_snapshots').deleteMany({
-    window_end: { $lt: sevenDaysAgo.toISOString() }
+    window_end: { $lt: sevenDaysAgo.toISOString() },
   });
 
   console.log(`Deleted ${deleteResult.deletedCount} old snapshots`);
@@ -81,7 +81,7 @@ async function aggregateDailySnapshots(db, targetDate) {
   return {
     success: true,
     aggregated: summaries.length,
-    deleted: deleteResult.deletedCount
+    deleted: deleteResult.deletedCount,
   };
 }
 
@@ -95,14 +95,14 @@ async function cleanupExpiredAlerts(db) {
   console.log(`Cleaning up alerts older than ${ninetyDaysAgo.toISOString()}`);
 
   const result = await db.collection('drift_alerts').deleteMany({
-    created_at: { $lt: ninetyDaysAgo.toISOString() }
+    created_at: { $lt: ninetyDaysAgo.toISOString() },
   });
 
   console.log(`Deleted ${result.deletedCount} expired alerts`);
 
   return {
     success: true,
-    deleted: result.deletedCount
+    deleted: result.deletedCount,
   };
 }
 
@@ -118,23 +118,23 @@ async function archiveOldSummaries(db) {
 
   // Optional: Export to archive collection or external storage
   const summaries = await db.collection('drift_daily_summaries').find({
-    date: { $lt: targetDate }
+    date: { $lt: targetDate },
   }).toArray();
 
   if (summaries.length > 0) {
     // Could export to S3, archive DB, etc.
     console.log(`Found ${summaries.length} summaries to archive`);
-    
+
     // For now, just delete (in production, would export first)
     const result = await db.collection('drift_daily_summaries').deleteMany({
-      date: { $lt: targetDate }
+      date: { $lt: targetDate },
     });
 
     console.log(`Deleted ${result.deletedCount} old summaries`);
-    
+
     return {
       success: true,
-      archived: result.deletedCount
+      archived: result.deletedCount,
     };
   }
 
@@ -152,7 +152,7 @@ async function runCleanupJob(db) {
   const results = {
     aggregation: null,
     alertCleanup: null,
-    summaryArchive: null
+    summaryArchive: null,
   };
 
   try {
@@ -211,5 +211,5 @@ module.exports = {
   cleanupExpiredAlerts,
   archiveOldSummaries,
   runCleanupJob,
-  scheduleCleanup
+  scheduleCleanup,
 };

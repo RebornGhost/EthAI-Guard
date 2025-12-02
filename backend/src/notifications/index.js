@@ -1,6 +1,6 @@
 /**
  * Notification Orchestrator
- * 
+ *
  * Coordinates sending notifications across multiple channels.
  */
 const { sendSlackAlert, sendDailySummary: sendSlackSummary } = require('./slack');
@@ -15,7 +15,7 @@ async function sendAlert(alert) {
   const results = {
     slack: null,
     email: null,
-    github: null
+    github: null,
   };
 
   // Slack notification
@@ -33,14 +33,14 @@ async function sendAlert(alert) {
     results.github = await createGitHubIssue(
       alert,
       process.env.GITHUB_TOKEN,
-      process.env.GITHUB_REPO
+      process.env.GITHUB_REPO,
     );
   }
 
   // Log results
   const successCount = Object.values(results).filter(r => r?.success).length;
   const totalAttempted = Object.values(results).filter(r => r !== null).length;
-  
+
   console.log(`Alert ${alert._id} sent: ${successCount}/${totalAttempted} channels succeeded`);
 
   return results;
@@ -53,7 +53,7 @@ async function sendAlert(alert) {
 async function sendDailySummary(summary) {
   const results = {
     slack: null,
-    email: null
+    email: null,
   };
 
   // Slack summary
@@ -68,7 +68,7 @@ async function sendDailySummary(summary) {
 
   const successCount = Object.values(results).filter(r => r?.success).length;
   const totalAttempted = Object.values(results).filter(r => r !== null).length;
-  
+
   console.log(`Daily summary sent: ${successCount}/${totalAttempted} channels succeeded`);
 
   return results;
@@ -90,25 +90,25 @@ async function testNotifications() {
     window_end: new Date().toISOString(),
     occurrence_count: 1,
     created_at: new Date().toISOString(),
-    details: { feature: 'test_feature', message: 'This is a test alert' }
+    details: { feature: 'test_feature', message: 'This is a test alert' },
   };
 
   console.log('Testing notification channels...');
   const results = await sendAlert(testAlert);
-  
+
   console.log('\nTest Results:');
   if (results.slack) {
     console.log(`  Slack: ${results.slack.success ? '✅' : '❌'} ${results.slack.error || ''}`);
   } else {
     console.log('  Slack: ⚠️ Not configured');
   }
-  
+
   if (results.email) {
     console.log(`  Email: ${results.email.success ? '✅' : '❌'} ${results.email.error || ''}`);
   } else {
     console.log('  Email: ⚠️ Not configured');
   }
-  
+
   if (results.github !== null) {
     console.log(`  GitHub: ${results.github.success ? '✅' : '❌'} ${results.github.error || ''}`);
   } else {
@@ -121,5 +121,5 @@ async function testNotifications() {
 module.exports = {
   sendAlert,
   sendDailySummary,
-  testNotifications
+  testNotifications,
 };
